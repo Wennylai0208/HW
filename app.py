@@ -578,8 +578,33 @@ def get_css() -> str:
     margin-bottom: 0.9rem;
 }
 
-/* Base style for ALL column buttons (mood cards) */
-div[data-testid="stColumn"] .stButton > button {
+/* Baseline for ALL Streamlit buttons (overridden below for cards) */
+.stButton > button {
+    background: transparent !important;
+    border: 1px solid rgba(200,136,42,0.28) !important;
+    color: #C8882A !important;
+    border-radius: 28px !important;
+    padding: 0.45rem 1.6rem !important;
+    font-size: 0.78rem !important;
+    letter-spacing: 0.16em !important;
+    text-transform: uppercase !important;
+    cursor: pointer !important;
+    transition: all 0.20s ease !important;
+    min-height: 0 !important;
+}
+
+.stButton > button:hover {
+    background: rgba(200,136,42,0.09) !important;
+    border-color: rgba(200,136,42,0.65) !important;
+    color: #E8A838 !important;
+    box-shadow: 0 0 18px rgba(200,136,42,0.13) !important;
+}
+
+/* Mood cards — ONLY buttons nested inside a stColumn that is itself
+   inside another stColumn (the inner 4-column grid inside col_left).
+   The next-track button lives directly in the outer col_right and
+   does NOT match this selector, so it keeps the pill baseline above. */
+div[data-testid="stColumn"] div[data-testid="stColumn"] .stButton > button {
     width: 100% !important;
     min-height: 115px !important;
     background: linear-gradient(160deg, #191208, #22180A) !important;
@@ -588,15 +613,15 @@ div[data-testid="stColumn"] .stButton > button {
     color: #B89A60 !important;
     font-size: 1.6rem !important;
     padding: 1.1rem 0.4rem !important;
-    cursor: pointer !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
     transition: all 0.22s cubic-bezier(0.4,0,0.2,1) !important;
     line-height: 1.45 !important;
-    position: relative !important;
     overflow: hidden !important;
     white-space: pre-line !important;
 }
 
-div[data-testid="stColumn"] .stButton > button:hover {
+div[data-testid="stColumn"] div[data-testid="stColumn"] .stButton > button:hover {
     border-color: rgba(200,136,42,0.52) !important;
     background: linear-gradient(160deg, #231A0D, #2E2210) !important;
     transform: translateY(-4px) !important;
@@ -605,12 +630,11 @@ div[data-testid="stColumn"] .stButton > button:hover {
     color: #DEBB7A !important;
 }
 
-div[data-testid="stColumn"] .stButton > button:active {
+div[data-testid="stColumn"] div[data-testid="stColumn"] .stButton > button:active {
     transform: translateY(-1px) !important;
 }
 
-/* Focus ring — accessible but styled */
-div[data-testid="stColumn"] .stButton > button:focus {
+div[data-testid="stColumn"] div[data-testid="stColumn"] .stButton > button:focus {
     outline: none !important;
     box-shadow: 0 0 0 2px rgba(200,136,42,0.45) !important;
 }
@@ -831,7 +855,7 @@ def render_active_mood_style(active_mood: str | None) -> None:
     st.markdown(
         f"""
         <style>
-        div[data-testid="stColumn"]:nth-child({idx}) .stButton > button {{
+        div[data-testid="stColumn"] div[data-testid="stColumn"]:nth-child({idx}) .stButton > button {{
             border-color: rgba({r},{g},{b},0.75) !important;
             background: linear-gradient(160deg, #231A0D, #321E0A) !important;
             box-shadow: 0 0 24px rgba({r},{g},{b},0.18),
@@ -921,21 +945,117 @@ def render_playlist_rail(ranked_tracks: list[dict], active_index: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SELF-TEST (runs only when executed directly, not via streamlit run)
+# STEP 4: MAIN — FINAL UI LAYOUT ASSEMBLY
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    st.set_page_config(
+        page_title="SoulJazz",
+        page_icon="🎷",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
+
+    init_session_state()
+
+    # CSS and audio are injected before any visible content
+    render_css()
+    render_audio_player()
+    render_active_mood_style(st.session_state.current_mood)
+
+    # ── Header ──────────────────────────────────────────────────────────────
+    st.markdown(
+        """
+        <div class="sj-header">
+            <div class="sj-title">SoulJazz</div>
+            <div class="sj-subtitle">
+                AI-curated jazz &nbsp;&middot;&nbsp; mood-matched by cosine similarity
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Two-panel layout ────────────────────────────────────────────────────
+    col_left, col_right = st.columns([1.05, 1], gap="large")
+
+    # ── LEFT: vinyl + mood card grid ────────────────────────────────────────
+    with col_left:
+
+        render_vinyl(st.session_state.is_playing)
+
+        st.markdown(
+            '<div class="sj-mood-label">How are you feeling tonight?</div>',
+            unsafe_allow_html=True,
+        )
+
+        # 4 tactile mood cards — NO dropdowns; st.button with on_click callback
+        mood_cols = st.columns(4, gap="small")
+        for i, mood in enumerate(MOOD_CARD_ORDER):
+            data = MOOD_VECTORS[mood]
+            with mood_cols[i]:
+                st.button(
+                    f"{data['emoji']}\n{mood}\n{data['subtitle']}",
+                    key=f"mood_btn_{mood}",
+                    on_click=select_mood,
+                    args=(mood,),
+                    use_container_width=True,
+                )
+
+    # ── RIGHT: now playing + Charlie's report + playlist ────────────────────
+    with col_right:
+        if st.session_state.current_track is None:
+            st.markdown(
+                """
+                <div class="sj-empty">
+                    Choose a mood on the left.<br>
+                    The algorithm will find<br>
+                    your perfect track.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            track = st.session_state.current_track
+
+            render_now_playing(track)
+
+            # Next-track pill — on_click batches state before rerun
+            st.button(
+                "→  Next Track",
+                key="next_btn",
+                on_click=next_track,
+            )
+
+            st.markdown('<div class="sj-divider"></div>', unsafe_allow_html=True)
+
+            render_charlie_report(st.session_state.charlie_report)
+
+            render_playlist_rail(
+                st.session_state.ranked_tracks,
+                st.session_state.track_index,
+            )
+
+    # ── Footer ──────────────────────────────────────────────────────────────
+    st.markdown(
+        """
+        <div style="
+            text-align:center;
+            padding: 3rem 0 1.5rem;
+            font-size: 0.65rem;
+            letter-spacing: 0.28em;
+            text-transform: uppercase;
+            color: #2E1E0A;
+        ">
+            SoulJazz &nbsp;&middot;&nbsp; Cosine Similarity Engine &nbsp;&middot;&nbsp; Python Only
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    print("=" * 60)
-    print("SoulJazz — STEP 1 + 2 Self-Test")
-    print("=" * 60)
-
-    print("\n— Cosine Similarity Engine —")
-    for mood in MOOD_VECTORS:
-        top = get_top_track(mood)
-        print(f"  {mood:12s} → {top['title']} ({top['artist']})  score={top['match_score']:.4f}")
-
-    print("\n— Charlie's Jazz Report (sample: Calm) —")
-    top_calm = get_top_track("Calm")
-    report   = _generate_charlie_report("Calm", top_calm)
-    print(report)
-
-    print("\n✓ Steps 1 & 2 verified.")
+    main()
